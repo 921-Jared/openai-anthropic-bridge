@@ -83,6 +83,9 @@ function translateRequest(body) {
     }
     if (m.role === 'assistant') {
       const blocks = [];
+      // OpenAI 客户端回传的思考(DeepSeek 风格 reasoning_content 或 reasoning) -> thinking 块
+      const reasoning = m.reasoning_content ?? m.reasoning;
+      if (typeof reasoning === 'string' && reasoning) blocks.push({ type: 'thinking', thinking: reasoning, signature: '' });
       if (m.content) {
         if (typeof m.content === 'string' && m.content) blocks.push({ type: 'text', text: m.content });
         else if (Array.isArray(m.content)) {
@@ -94,6 +97,11 @@ function translateRequest(body) {
         try { input = tc.function?.arguments ? JSON.parse(tc.function.arguments) : {}; }
         catch { input = { _raw: tc.function?.arguments }; }
         blocks.push({ type: 'tool_use', id: tc.id || `call_${Math.random().toString(36).slice(2)}`, name: tc.function?.name, input });
+      }
+      // 部分网关(如思考模式的 glm/deepseek 档)要求带工具调用的 assistant 消息必须回传 thinking，
+      // 而 OpenAI 客户端多数不回传 -> 补空占位(实测空 thinking 即可通过存在性校验)
+      if (m.tool_calls?.length && !blocks.some((b) => b.type === 'thinking')) {
+        blocks.unshift({ type: 'thinking', thinking: '', signature: '' });
       }
       if (blocks.length) pushMsg('assistant', blocks);
       continue;
