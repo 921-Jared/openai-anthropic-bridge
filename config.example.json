@@ -1,0 +1,5 @@
+{
+  "upstream": "https://your-anthropic-gateway.example.com",
+  "apiKey": "sk-your-key",
+  "port": 3456
+}

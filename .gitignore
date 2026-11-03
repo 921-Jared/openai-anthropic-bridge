@@ -1,0 +1,9 @@
+# 含密钥的本地配置，绝不提交
+config.json
+
+# 运行日志
+*.log
+
+# 系统
+Thumbs.db
+.DS_Store
