@@ -69,6 +69,8 @@ claude
 
 或在 Claude Code 设置里添加模型供应商：协议选 **Anthropic**，地址填 `http://127.0.0.1:4567`，Key 任意非空。
 
+> 已验证：真实 Claude Code 会话（`claude -p`）经反向桥完成**文本对话 + Bash 工具调用闭环**（工具定义 → tool_use → 执行 → tool_result 回传 → 最终回答）。
+
 反向桥做了这些 Claude Code 专属兼容：
 - **完整 SSE 事件序列**：`message_start → content_block_start/delta/stop → message_delta → message_stop`
 - **thinking 块**：后端 `reasoning_content` → Anthropic `thinking` 块（带占位 signature，非 Anthropic 后端无人验签）
