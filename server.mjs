@@ -6,6 +6,7 @@
 
 import http from 'node:http';
 import fs from 'node:fs';
+import { startAnthropicServer } from './anthropic-serve.mjs';
 
 let cfg = {};
 try { cfg = JSON.parse(fs.readFileSync(new URL('./config.json', import.meta.url), 'utf8')); } catch { /* 无配置文件 */ }
@@ -14,11 +15,19 @@ const UPSTREAM = (process.env.JX_BRIDGE_UPSTREAM || cfg.upstream || '').replace(
 const PORT = Number(process.env.JX_BRIDGE_PORT || cfg.port || 3456);
 const API_KEY = process.env.JX_GATEWAY_API_KEY || cfg.apiKey || '';
 
-if (!UPSTREAM || !API_KEY) {
-  console.error('[bridge] 缺少配置: 需要 upstream(Anthropic 兼容网关地址) 和 apiKey。');
-  console.error('[bridge] 方式一: 运行 node install.mjs 交互配置; 方式二: 环境变量 JX_BRIDGE_UPSTREAM + JX_GATEWAY_API_KEY');
+// 反向桥(可选): 对外提供 Anthropic 协议，后端为 OpenAI 兼容服务
+//   环境变量: BRIDGE_OPENAI_BACKEND / BRIDGE_OPENAI_KEY / BRIDGE_ANTHROPIC_PORT
+//   config.json: { "openaiBackend": "http://127.0.0.1:3456/v1", "openaiBackendKey": "...", "anthropicPort": 4567 }
+const OPENAI_BACKEND = (process.env.BRIDGE_OPENAI_BACKEND || cfg.openaiBackend || '').replace(/\/+$/, '');
+
+const FORWARD_READY = !!(UPSTREAM && API_KEY);
+const REVERSE_READY = !!OPENAI_BACKEND;
+if (!FORWARD_READY && !REVERSE_READY) {
+  console.error('[bridge] 缺少配置: 正向桥需要 upstream(Anthropic 兼容网关地址)+apiKey，反向桥需要 openaiBackend(OpenAI 兼容后端地址)，至少配一个。');
+  console.error('[bridge] 方式一: 运行 node install.mjs 交互配置; 方式二: 环境变量(见文件头注释)');
   process.exit(1);
 }
+if (!FORWARD_READY) console.warn('[bridge] 未配置正向桥(upstream/apiKey)，仅启动反向桥。');
 
 // 常驻进程保命：任何未捕获异常只记日志，绝不退出进程
 process.on('uncaughtException', (err) => { console.error(`[bridge] uncaughtException: ${err?.stack || err}`); });
@@ -407,7 +416,23 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, '127.0.0.1', () => {
-  console.log(`[bridge] 监听 http://127.0.0.1:${PORT}  ->  ${UPSTREAM}`);
-  console.log(`[bridge] 客户端(如 WorkBuddy)接口地址填: http://127.0.0.1:${PORT}/v1`);
-});
+if (FORWARD_READY) {
+  server.listen(PORT, '127.0.0.1', () => {
+    console.log(`[bridge] 正向桥监听 http://127.0.0.1:${PORT}  ->  ${UPSTREAM}`);
+    console.log(`[bridge] 客户端(如 WorkBuddy)接口地址填: http://127.0.0.1:${PORT}/v1`);
+  });
+}
+
+if (REVERSE_READY) {
+  let modelMap = { ...(cfg.modelMap || {}) };
+  if (process.env.BRIDGE_MODEL_MAP) {
+    try { modelMap = { ...modelMap, ...JSON.parse(process.env.BRIDGE_MODEL_MAP) }; }
+    catch { console.warn('[bridge] BRIDGE_MODEL_MAP 不是合法 JSON，已忽略'); }
+  }
+  startAnthropicServer({
+    backend: OPENAI_BACKEND,
+    backendKey: process.env.BRIDGE_OPENAI_KEY || cfg.openaiBackendKey || 'sk-anonymous',
+    port: Number(process.env.BRIDGE_ANTHROPIC_PORT || cfg.anthropicPort || 4567),
+    modelMap,
+  });
+}

@@ -1,7 +1,8 @@
 // openai-anthropic-bridge 一键安装器
 // 交互式: node install.mjs
 // 脚本式: node install.mjs --upstream https://gw.example.com --key sk-xxx --model my-model [--port 3456] [--yes] [--skip-autostart] [--skip-workbuddy]
-// 做的事: ①连通性测试上游 ②写 config.json ③启动桥+看门狗 ④(可选)注册开机自启 ⑤(可选)自动写入 WorkBuddy 自定义模型配置
+//         [--openai-backend http://127.0.0.1:11434/v1 --openai-key sk-xxx --anthropic-port 4567 --model-map '{"claude-sonnet":"qwen3"}']
+// 做的事: ①连通性测试上游 ②(可选)配置反向桥(Claude Code->OpenAI后端) ③写 config.json ④启动桥+看门狗 ⑤(可选)注册开机自启 ⑥(可选)自动写入 WorkBuddy 自定义模型配置
 
 import path from 'node:path';
 import fs from 'node:fs';
@@ -26,6 +27,13 @@ const cfg = {
   port: Number(flag('port') || process.env.JX_BRIDGE_PORT || 3456),
   model: flag('model') || '',
 };
+// 反向桥(可选): 让 Anthropic 协议客户端(如 Claude Code)走 OpenAI 兼容后端
+const reverse = {
+  backend: (flag('openai-backend') || '').replace(/\/+$/, ''),
+  backendKey: flag('openai-key') || 'sk-anonymous',
+  anthropicPort: Number(flag('anthropic-port') || 4567),
+  modelMap: flag('model-map') || '',
+};
 const YES = has('yes');
 
 const rl = process.stdout.isTTY && !YES ? readline.createInterface({ input: process.stdin, output: process.stdout }) : null;
@@ -46,7 +54,7 @@ if (!cfg.apiKey) cfg.apiKey = await ask('API Key', '');
 if (!cfg.apiKey) fail('API Key 不能为空');
 
 // ---------- 2. 连通性测试 + 拉模型列表 ----------
-console.log(`\n[1/5] 测试上游 ${cfg.upstream} ...`);
+console.log(`\n[1/6] 测试上游 ${cfg.upstream} ...`);
 let models = [];
 try {
   const r = await fetch(`${cfg.upstream}/v1/models`, {
@@ -65,13 +73,51 @@ const DEFAULT_MODEL = cfg.model || models.find((m) => /^jx-|alias/.test(m)) || m
 if (!cfg.model) cfg.model = await ask('默认模型名称（WorkBuddy 里填的那个）', DEFAULT_MODEL);
 if (!cfg.model) fail('模型名称不能为空');
 
+// ---------- 2.5 反向桥(可选) ----------
+if (!reverse.backend) {
+  const want = (await ask('\n启用反向桥? (让 Claude Code 等 Anthropic 客户端走 OpenAI 兼容后端) [y/N]', 'N')).toLowerCase() === 'y';
+  if (want) {
+    reverse.backend = (await ask('OpenAI 兼容后端地址 (如 http://127.0.0.1:11434/v1)', '')).replace(/\/+$/, '');
+    if (reverse.backend) {
+      const k = await ask('后端 API Key (无鉴权可回车)', '');
+      if (k) reverse.backendKey = k;
+    }
+  }
+}
+
+if (reverse.backend) {
+  console.log(`\n[2/6] 测试反向后端 ${reverse.backend} ...`);
+  try {
+    const r = await fetch(`${reverse.backend}/models`, {
+      headers: { authorization: `Bearer ${reverse.backendKey}` },
+      signal: AbortSignal.timeout(10000),
+    });
+    // 有些后端 /models 404 但 /chat/completions 正常，只警告不阻断
+    if (r.ok) ok('后端连通正常');
+    else console.log(`  [WARN] 后端 /models 返回 HTTP ${r.status}（部分后端不提供模型列表，继续安装）`);
+  } catch (e) {
+    console.log(`  [WARN] 连不上后端: ${e.message}（请确认地址，继续安装）`);
+  }
+  if (reverse.modelMap) {
+    try { JSON.parse(reverse.modelMap); }
+    catch { fail('--model-map 不是合法 JSON，如 {"claude-sonnet-5":"qwen3-max"}'); }
+  }
+}
+
 // ---------- 3. 写 config.json ----------
-console.log('\n[2/5] 写入 config.json（含 key，已被 .gitignore 忽略，不会误提交）...');
-fs.writeFileSync(path.join(DIR, 'config.json'), JSON.stringify({ upstream: cfg.upstream, apiKey: cfg.apiKey, port: cfg.port }, null, 2));
-ok(`upstream=${cfg.upstream} port=${cfg.port}`);
+console.log('\n[3/6] 写入 config.json（含 key，已被 .gitignore 忽略，不会误提交）...');
+const out = { upstream: cfg.upstream, apiKey: cfg.apiKey, port: cfg.port };
+if (reverse.backend) {
+  out.openaiBackend = reverse.backend;
+  out.openaiBackendKey = reverse.backendKey;
+  out.anthropicPort = reverse.anthropicPort;
+  if (reverse.modelMap) out.modelMap = JSON.parse(reverse.modelMap);
+}
+fs.writeFileSync(path.join(DIR, 'config.json'), JSON.stringify(out, null, 2));
+ok(`upstream=${cfg.upstream} port=${cfg.port}${reverse.backend ? ` openaiBackend=${reverse.backend} anthropicPort=${reverse.anthropicPort}` : ''}`);
 
 // ---------- 4. 启动桥 + 看门狗 ----------
-console.log('\n[3/5] 启动桥与看门狗...');
+console.log('\n[4/6] 启动桥与看门狗...');
 let running = false;
 try {
   const r = await fetch(`http://127.0.0.1:${cfg.port}/health`, { signal: AbortSignal.timeout(2000) });
@@ -96,11 +142,21 @@ if (running) {
   }
 }
 
+if (reverse.backend) {
+  try {
+    const r = await fetch(`http://127.0.0.1:${reverse.anthropicPort}/health`, { signal: AbortSignal.timeout(3000) });
+    if (!r.ok) throw new Error(`health HTTP ${r.status}`);
+    ok(`反向桥已启动: http://127.0.0.1:${reverse.anthropicPort} (Anthropic协议) -> ${reverse.backend}`);
+  } catch (e) {
+    fail(`反向桥启动失败: ${e.message}（手动运行 node server.mjs 看报错）`);
+  }
+}
+
 // ---------- 5. 开机自启 ----------
 if (has('skip-autostart')) {
-  console.log('\n[4/5] 按参数跳过开机自启');
+  console.log('\n[5/6] 按参数跳过开机自启');
 } else {
-  console.log('\n[4/5] 注册开机自启（启动文件夹，任务管理器-启动应用里可见可禁用）...');
+  console.log('\n[5/6] 注册开机自启（启动文件夹，任务管理器-启动应用里可见可禁用）...');
   const startupDir = path.join(process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'),
     'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup');
   const bat = path.join(startupDir, 'openai-anthropic-bridge-autostart.bat');
@@ -111,9 +167,9 @@ if (has('skip-autostart')) {
 
 // ---------- 6. WorkBuddy 自动配置 ----------
 if (has('skip-workbuddy')) {
-  console.log('\n[5/5] 按参数跳过 WorkBuddy 配置');
+  console.log('\n[6/6] 按参数跳过 WorkBuddy 配置');
 } else {
-  console.log('\n[5/5] WorkBuddy 自动配置...');
+  console.log('\n[6/6] WorkBuddy 自动配置...');
   const mj = path.join(os.homedir(), '.workbuddy', 'models.json');
   if (!fs.existsSync(mj)) {
     console.log('  未检测到 ~/.workbuddy/models.json（没装 WorkBuddy？跳过）');
@@ -137,8 +193,12 @@ if (has('skip-workbuddy')) {
 if (rl) rl.close();
 console.log(`
 === 安装完成 ===
-接口地址: http://127.0.0.1:${cfg.port}/v1
-模型名称: ${cfg.model}
+正向桥(WorkBuddy等OpenAI客户端 -> Anthropic网关):
+  接口地址: http://127.0.0.1:${cfg.port}/v1
+  模型名称: ${cfg.model}${reverse.backend ? `
+反向桥(Claude Code等Anthropic客户端 -> ${reverse.backend}):
+  环境变量: ANTHROPIC_BASE_URL=http://127.0.0.1:${reverse.anthropicPort} ANTHROPIC_AUTH_TOKEN=sk-anonymous
+  Claude Code: 在设置里添加模型时选 Anthropic 协议填上面的地址即可` : ''}
 状态: 桥运行中 + 看门狗每 60 秒自愈${has('skip-autostart') ? '' : ' + 开机自启'}
-验证: curl http://127.0.0.1:${cfg.port}/health
+验证: curl http://127.0.0.1:${cfg.port}/health${reverse.backend ? ` && curl http://127.0.0.1:${reverse.anthropicPort}/health` : ''}
 `);
