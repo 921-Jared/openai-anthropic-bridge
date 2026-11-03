@@ -27,17 +27,24 @@ else console.log('  [--] 无开机自启');
 
 // 2. 停进程：优先按端口杀（最可靠），再按本目录路径兜底
 let cfgPort = 3456;
-try { cfgPort = JSON.parse(fs.readFileSync(path.join(DIR, 'config.json'), 'utf8')).port || 3456; } catch { /* 用默认 */ }
-const dirRe = DIR.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/'/g, "''");
-// 只按两个精确边界杀: 本安装的端口 + 本目录绝对路径。
-// 不做任何按文件名的全局匹配——多实例/其他工具(如 mcp-server.mjs)会被误杀
+let cfgAnthropicPort = null;
+try {
+  const c = JSON.parse(fs.readFileSync(path.join(DIR, 'config.json'), 'utf8'));
+  cfgPort = c.port || 3456;
+  if (c.openaiBackend) cfgAnthropicPort = c.anthropicPort || 4567; // 反向桥端口
+} catch { /* 用默认 */ }
+// Windows 命令行里的路径斜杠方向随 spawn 方式变化，两种形式都匹配
+const dirRe = DIR.replace(/\\/g, '/').replace(/'/g, "''").replace(/"/g, '\\"');
+const dirAlt = DIR.replace(/\\/g, '\\\\');
 const ps = [
   `$pids = @()`,
-  `try { $pids += (Get-NetTCPConnection -LocalPort ${cfgPort} -State Listen -ErrorAction Stop).OwningProcess } catch {}`,
-  `$pids += (Get-CimInstance Win32_Process | Where-Object { $_.Name -eq "node.exe" -and $_.CommandLine -match "${dirRe}" } | ForEach-Object { $_.ProcessId })`,
+  ...[cfgPort, cfgAnthropicPort].filter(Boolean).map((p) => `try { $pids += (Get-NetTCPConnection -LocalPort ${p} -State Listen -ErrorAction Stop).OwningProcess } catch {}`),
+  `$pids += (Get-CimInstance Win32_Process | Where-Object { $_.Name -eq "node.exe" -and ($_.CommandLine -match "${dirRe}" -or $_.CommandLine -match "${dirAlt}") } | ForEach-Object { $_.ProcessId })`,
   `$pids = $pids | Sort-Object -Unique`,
   `if ($pids) { $pids | ForEach-Object { Stop-Process -Id $_ -Force; "stopped PID $_" } }`,
 ].join('; ');
+// 只按两个精确边界杀: 本安装的端口 + 本目录绝对路径。
+// 不做任何按文件名的全局匹配——多实例/其他工具(如 mcp-server.mjs)会被误杀
 execFile('powershell', ['-NoProfile', '-Command', ps], (err, stdout) => {
   if (err) console.error(`  [WARN] 停进程出错: ${err.message}`);
   console.log(stdout.trim() ? `  [OK] ${stdout.trim()}` : '  [--] 无运行中的进程');

@@ -1,5 +1,16 @@
 {
   "upstream": "https://your-anthropic-gateway.example.com",
   "apiKey": "sk-your-key",
-  "port": 3456
+  "port": 3456,
+
+  "_反向桥说明": "以下三项配置后，同进程额外监听 Anthropic 协议端口，供 Claude Code 等 Anthropic 客户端接入你的 OpenAI 兼容后端",
+  "openaiBackend": "http://127.0.0.1:11434/v1",
+  "openaiBackendKey": "sk-your-backend-key",
+  "anthropicPort": 4567,
+
+  "_模型映射说明": "可选。key=客户端请求的模型名， value=发给后端的模型名",
+  "modelMap": {
+    "claude-sonnet-5": "qwen3-max",
+    "claude-haiku-5": "qwen3-max"
+  }
 }
