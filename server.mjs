@@ -1,7 +1,7 @@
 // openai-anthropic-bridge — 本地 OpenAI Chat Completions ↔ Anthropic Messages 协议转换代理
 // 零依赖: Node >= 18 (内置 http + fetch)。仅监听 127.0.0.1，不对局域网开放。
 // 配置优先级: 环境变量 > 同目录 config.json > 默认值
-//   环境变量: JX_BRIDGE_UPSTREAM / JX_GATEWAY_API_KEY / JX_BRIDGE_PORT
+//   环境变量: BRIDGE_UPSTREAM / BRIDGE_API_KEY / BRIDGE_PORT
 //   config.json: { "upstream": "...", "apiKey": "...", "port": 3456 }  (已被 .gitignore 忽略)
 
 import http from 'node:http';
@@ -11,9 +11,9 @@ import { startAnthropicServer } from './anthropic-serve.mjs';
 let cfg = {};
 try { cfg = JSON.parse(fs.readFileSync(new URL('./config.json', import.meta.url), 'utf8')); } catch { /* 无配置文件 */ }
 
-const UPSTREAM = (process.env.JX_BRIDGE_UPSTREAM || cfg.upstream || '').replace(/\/+$/, '');
-const PORT = Number(process.env.JX_BRIDGE_PORT || cfg.port || 3456);
-const API_KEY = process.env.JX_GATEWAY_API_KEY || cfg.apiKey || '';
+const UPSTREAM = (process.env.BRIDGE_UPSTREAM || cfg.upstream || '').replace(/\/+$/, '');
+const PORT = Number(process.env.BRIDGE_PORT || cfg.port || 3456);
+const API_KEY = process.env.BRIDGE_API_KEY || cfg.apiKey || '';
 
 // 反向桥(可选): 对外提供 Anthropic 协议，后端为 OpenAI 兼容服务
 //   环境变量: BRIDGE_OPENAI_BACKEND / BRIDGE_OPENAI_KEY / BRIDGE_ANTHROPIC_PORT

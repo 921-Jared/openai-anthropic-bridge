@@ -22,9 +22,9 @@ const flag = (name) => {
 const has = (name) => args.includes(`--${name}`);
 
 const cfg = {
-  upstream: (flag('upstream') || process.env.JX_BRIDGE_UPSTREAM || '').replace(/\/+$/, ''),
-  apiKey: flag('key') || process.env.JX_GATEWAY_API_KEY || '',
-  port: Number(flag('port') || process.env.JX_BRIDGE_PORT || 3456),
+  upstream: (flag('upstream') || process.env.BRIDGE_UPSTREAM || '').replace(/\/+$/, ''),
+  apiKey: flag('key') || process.env.BRIDGE_API_KEY || '',
+  port: Number(flag('port') || process.env.BRIDGE_PORT || 3456),
   model: flag('model') || '',
 };
 // 反向桥(可选): 让 Anthropic 协议客户端(如 Claude Code)走 OpenAI 兼容后端
@@ -69,7 +69,7 @@ try {
   fail(`连不上上游: ${e.message}`);
 }
 
-const DEFAULT_MODEL = cfg.model || models.find((m) => /^jx-|alias/.test(m)) || models[0] || '';
+const DEFAULT_MODEL = cfg.model || models.find((m) => /alias/i.test(m)) || models[0] || '';
 if (!cfg.model) cfg.model = await ask('默认模型名称（WorkBuddy 里填的那个）', DEFAULT_MODEL);
 if (!cfg.model) fail('模型名称不能为空');
 

@@ -14,8 +14,8 @@ const LOG = path.join(DIR, 'guard.log');
 let cfg = {};
 try { cfg = JSON.parse(fs.readFileSync(path.join(DIR, 'config.json'), 'utf8')); } catch { /* 无配置文件 */ }
 // 与 server.mjs 同一套配置语义: 正向(OpenAI客户端->Anthropic网关) + 反向(Anthropic客户端->OpenAI后端)
-const FORWARD_PORT = Number(process.env.JX_BRIDGE_PORT || cfg.port || 3456);
-const FORWARD_ON = !!(cfg.upstream || process.env.JX_BRIDGE_UPSTREAM);
+const FORWARD_PORT = Number(process.env.BRIDGE_PORT || cfg.port || 3456);
+const FORWARD_ON = !!(cfg.upstream || process.env.BRIDGE_UPSTREAM);
 const REVERSE_PORT = Number(process.env.BRIDGE_ANTHROPIC_PORT || cfg.anthropicPort || 4567);
 const REVERSE_ON = !!(cfg.openaiBackend || process.env.BRIDGE_OPENAI_BACKEND);
 

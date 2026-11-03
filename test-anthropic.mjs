@@ -4,7 +4,7 @@
 
 const PORT = Number(process.argv[2] || process.env.BRIDGE_ANTHROPIC_PORT || 4567);
 const BASE = `http://127.0.0.1:${PORT}`;
-const MODEL = process.env.TEST_MODEL || 'jx-opus';
+const MODEL = process.env.TEST_MODEL || 'your-model-name'; // 活链测试需要真实模型名: TEST_MODEL=xxx node test-anthropic.mjs
 
 const H = { 'content-type': 'application/json', 'x-api-key': 'sk-any', 'anthropic-version': '2023-06-01' };
 let pass = 0, failN = 0;

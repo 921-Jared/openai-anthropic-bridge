@@ -1,10 +1,10 @@
 // 回归测试套件: node test.mjs [port]
 // 需要桥已在指定端口运行且上游可用。覆盖: 健康/模型列表/非流式/流式/工具(非流式+流式+回传闭环)/流中断韧性
 
-const PORT = Number(process.argv[2] || process.env.JX_BRIDGE_PORT || 3456);
+const PORT = Number(process.argv[2] || process.env.BRIDGE_PORT || 3456);
 const BASE = `http://127.0.0.1:${PORT}`;
-const KEY = process.env.JX_GATEWAY_API_KEY || 'sk-local';
-const MODEL = process.env.TEST_MODEL || 'jx-opus';
+const KEY = process.env.BRIDGE_API_KEY || 'sk-local';
+const MODEL = process.env.TEST_MODEL || 'your-model-name'; // 活链测试需要真实模型名: TEST_MODEL=xxx node test.mjs
 
 const H = { 'content-type': 'application/json', authorization: `Bearer ${KEY}` };
 let pass = 0, failN = 0;
